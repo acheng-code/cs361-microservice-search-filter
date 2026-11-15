@@ -1,4 +1,4 @@
-# Search and Filter Microservice (CS361)
+# CS361 - Search and Filter Microservice
 
 A small, reusable HTTP service that **searches and filters any list of JSON records**. You send it your records and your search/filter criteria; it sends back the records that match, unchanged and in their original order.
 
@@ -13,8 +13,10 @@ It is built for all four team projects (to-do list, grocery inventory, stock tra
 ## Quick start
 
 ```bash
-git clone https://github.com/<your-github-username>/CS361-Search-Filter-Microservice.git
-cd CS361-Search-Filter-Microservice
+git clone https://github.com/acheng-code/cs361-microservice-search-filter.git
+
+cd cs361-microservice-search-filter
+
 python search_filter_service.py
 ```
 
@@ -163,6 +165,53 @@ The service responds with JSON.
 
 If the service is **not running**, your HTTP library raises a connection error instead of returning a status code (`URLError` / `ConnectionError` in Python, a rejected `fetch` promise in JavaScript). Catch it and tell the user search is unavailable. Don't silently fall back to showing everything.
 
+### Example: receiving and using the response (Python)
+
+This continues from the request in [Requesting data](#requesting-data). It reads the HTTP status and the JSON body, then uses `status`, `count` and `results`. It is the same code that `test_program.py` runs.
+
+```python
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+# payload = the request dict from "Requesting data" (records, query, search_fields, filters)
+request = Request("http://127.0.0.1:5002/search_filter",
+                  data=json.dumps(payload).encode("utf-8"), method="POST",
+                  headers={"Content-Type": "application/json"})
+try:
+    with urlopen(request, timeout=3) as response:        # HTTP 200
+        data = json.loads(response.read().decode("utf-8"))
+except HTTPError as error:                               # HTTP 400, 404, 413, 500
+    data = json.loads(error.read().decode("utf-8"))
+except URLError:                                         # service not running
+    data = {"status": "error", "message": "Search service is unavailable"}
+
+if data["status"] == "success":
+    print(f"{data['count']} match(es)")
+    for record in data["results"]:                       # full original records
+        print(record["name"])
+else:
+    print("Error:", data["message"])                     # e.g. "records is required"
+```
+
+Output for the example request above:
+
+```text
+1 match(es)
+Milk
+```
+
+### Example: receiving the response (JavaScript)
+
+```javascript
+const data = await response.json();          // response from the fetch() call above
+if (data.status === "success") {
+  data.results.forEach((pet) => console.log(pet.name));
+} else {
+  console.error(data.message);
+}
+```
+
 ### Health check
 
 `GET /health` returns `{"status": "ok", "service": "search_filter"}`. Use it to check whether the service is up.
@@ -205,29 +254,95 @@ These field names are **examples**. Use the field names from your own app's data
 
 ## UML sequence diagram
 
+The **client** is any teammate's main program; its internal function names are not shown because they differ per app. **Microservice function names** come from `search_filter_service.py`. GitHub draws the diagram below; the same diagram is also saved as an image in [`uml-sequence.png`](uml-sequence.png).
+
 ```mermaid
 sequenceDiagram
+    autonumber
     actor User
-    participant App as Client app (UI)
-    participant SF as Search & Filter service :5002
+    participant App as Client program<br/>(teammate's main program or test_program.py)
+    participant H as SearchHandler<br/>(search_filter_service.py, port 5002)
+    participant L as Search logic<br/>(search_filter_service.py)
 
-    User->>App: Enter search text / choose filter
-    App->>SF: POST /search_filter {records, query, search_fields, filters}
-    SF->>SF: Validate request
+    User->>App: Enter search text and/or choose a filter
+    Note over App: Builds JSON body:<br/>{records, query, search_fields, filters}
+    App->>H: HTTP POST /search_filter<br/>Content-Type: application/json
+    activate H
+    H->>H: do_POST()
+    H->>H: _read_json_body()
+    Note right of H: Checks Content-Length (≤ 5 MiB)<br/>and decodes the JSON
+    H->>L: search_and_filter(payload)
+    activate L
+    L->>L: parse_request(payload)
+    Note right of L: Validates types and returns a SearchRequest,<br/>or raises InvalidRequest
     alt valid request
-        SF->>SF: Match query (substring) and filters (exact)
-        SF-->>App: 200 {status: "success", count, results}
-        App-->>User: Show matching records (saved data unchanged)
-    else invalid request
-        SF-->>App: 400 {status: "error", message}
+        L->>L: search(request)
+        loop for each record (original order kept)
+            L->>L: _matches_query(): case-insensitive substring
+            L->>L: _matches_filters(): exact match, AND across fields, OR within a list
+        end
+        L-->>H: {status: "success", count, results}
+        deactivate L
+        H->>H: _respond(200, body)
+        H-->>App: HTTP 200 + JSON {status, count, results}
+        Note over App: Reads data["results"]<br/>(full original records, unmodified)
+        App-->>User: Display matching records
+    else invalid request (bad JSON, missing records, wrong type)
+        L--xH: raises InvalidRequest
+        H->>H: _error(400, message)
+        H-->>App: HTTP 400 + JSON {status: "error", message}
         App-->>User: Show error message
-    else service not running
-        App--xSF: connection refused / timeout
-        App-->>User: "Search is unavailable"
+    else request too large / unexpected error
+        H-->>App: HTTP 413 or 500 + JSON {status: "error", message}
+        App-->>User: Show error message
     end
+    deactivate H
+    Note over App,H: If the service is not running, the POST fails with a<br/>connection error. The client catches it and shows "Search is unavailable".
 ```
 
 ---
+
+## Test program (demo)
+
+`test_program.py` is a small Python program that **requests** data from the running microservice and prints what it **receives**: a search, a filter, a combined search and filter, and an invalid request that shows the error response.
+
+```bash
+# Terminal 1
+python search_filter_service.py
+
+# Terminal 2
+python test_program.py
+```
+
+Sample output (first example):
+
+```text
+REQUEST  -> POST http://127.0.0.1:5002/search_filter
+{
+  "records": [
+    {"id": 1, "name": "Whole Milk", "category": "Dairy", "quantity": 1},
+    {"id": 2, "name": "Almond Milk", "category": "Beverages", "quantity": 3},
+    {"id": 3, "name": "Cheddar Cheese", "category": "Dairy", "quantity": 2},
+    {"id": 4, "name": "Apple", "category": "Produce", "quantity": 6}
+  ],
+  "query": "milk",
+  "search_fields": ["name"]
+}
+
+RESPONSE <- HTTP 200
+{
+  "status": "success",
+  "count": 2,
+  "results": [
+    {"id": 1, "name": "Whole Milk", "category": "Dairy", "quantity": 1},
+    {"id": 2, "name": "Almond Milk", "category": "Beverages", "quantity": 3}
+  ]
+}
+
+Received 2 matching record(s): ['Whole Milk', 'Almond Milk']
+```
+
+Terminal 1 logs each request the service receives, for example `"POST /search_filter HTTP/1.1" 200`.
 
 ## Running the tests
 
@@ -242,9 +357,11 @@ python -m unittest test_service.py -v
 | File | Purpose |
 |---|---|
 | `search_filter_service.py` | The microservice: request parsing, matching logic and HTTP server |
+| `test_program.py` | Demo program: prints each request sent and each response received |
 | `client_examples.py` | Copy-ready Python client with error handling, plus examples for all four projects |
 | `test_service.py` | Unit and HTTP tests |
+| `uml-sequence.png` | Image version of the UML sequence diagram |
 
-## Limitations
+## Authors
 
-This is a course project service for local use. It binds to `127.0.0.1` and has no authentication or TLS, so don't expose it to the internet or send it confidential data. It searches whatever records it receives in one request (up to 5 MiB), so it isn't meant to replace a database query over very large datasets.
+Amina Cheng & Kimberly Le

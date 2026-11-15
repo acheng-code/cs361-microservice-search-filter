@@ -1,4 +1,5 @@
-"""Reusable search-and-filter microservice using only the Python standard library.
+"""
+Reusable search-and-filter microservice using only the Python standard library.
 
 Run this file in its own process; clients call POST /search_filter (default port 5002).
 

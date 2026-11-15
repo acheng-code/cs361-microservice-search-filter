@@ -1,4 +1,7 @@
-"""Tests for the Search & Filter microservice. Run: python -m unittest test_service.py -v
+"""
+Tests for the Search & Filter microservice.
+
+Run: python -m unittest test_service.py -v
 
 No server needs to be running: HTTP tests start a temporary one on a free port.
 """

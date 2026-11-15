@@ -1,8 +1,10 @@
-"""Example Python client for the Search & Filter microservice (standard library only).
+"""
+Example Python client for the Search & Filter microservice (standard library only).
 
 Copy `call_search_service` and `SearchServiceError` into your own app.
 Run this file directly (with the service running) to see four team examples.
 """
+
 import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
