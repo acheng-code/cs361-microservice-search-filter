@@ -112,26 +112,6 @@ response.raise_for_status()
 matches = response.json()["results"]
 ```
 
-### JavaScript example (browser or Node 18+)
-
-The service sends CORS headers, so a web page on another port can call it directly:
-
-```javascript
-const response = await fetch("http://127.0.0.1:5002/search_filter", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    records: pets,
-    query: "max",
-    search_fields: ["name", "breed"],
-    filters: { species: "Dog" },
-  }),
-});
-const data = await response.json();
-if (!response.ok) throw new Error(data.message);
-const matches = data.results;
-```
-
 ---
 
 ## Receiving data
